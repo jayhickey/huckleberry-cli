@@ -1,7 +1,6 @@
 # Huckleberry CLI
 
-Command-line interface for the Huckleberry baby tracking app. Authenticate once
-and log sleep, feeds, diapers, and growth from your terminal.
+Command-line interface for [Huckleberry](https://huckleberrycare.com/), a baby tracking app. Authenticate once and log sleep, feeds, diapers, and growth from your terminal.
 
 > **Note:** This is an unofficial tool and is not affiliated with Huckleberry.
 
