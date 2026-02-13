@@ -58,7 +58,7 @@ def get_api():
         email = os.environ.get("HUCKLEBERRY_EMAIL")
         password = os.environ.get("HUCKLEBERRY_PASSWORD")
         timezone = os.environ.get("HUCKLEBERRY_TIMEZONE", "America/Los_Angeles")
-        
+
         if not email or not password:
             print("Error: Not configured. Run 'hb login' first or set environment variables:")
             print("  HUCKLEBERRY_EMAIL")
@@ -69,7 +69,7 @@ def get_api():
         email = config.get("email")
         password = config.get("password")
         timezone = config.get("timezone", "America/Los_Angeles")
-    
+
     api = HuckleberryAPI(email=email, password=password, timezone=timezone)
     api.authenticate()
     return api
@@ -81,14 +81,14 @@ def get_child_uid(api, child_name=None):
     if not children:
         print("Error: No children found")
         sys.exit(1)
-    
+
     if child_name:
         for child in children:
             if child.get("name", "").lower() == child_name.lower():
                 return child["uid"]
         print(f"Error: Child '{child_name}' not found")
         sys.exit(1)
-    
+
     return children[0]["uid"]
 
 
@@ -97,7 +97,7 @@ def cmd_login(args):
     email = input("Email: ").strip()
     password = input("Password: ").strip()
     timezone = input("Timezone (default: America/Los_Angeles): ").strip() or "America/Los_Angeles"
-    
+
     print("Testing authentication...")
     try:
         api = HuckleberryAPI(email=email, password=password, timezone=timezone)
@@ -109,7 +109,7 @@ def cmd_login(args):
     except Exception as e:
         print(f"✗ Authentication failed: {e}")
         sys.exit(1)
-    
+
     save_config({"email": email, "password": password, "timezone": timezone})
     print(f"✓ Config saved to {CONFIG_PATH}")
 
@@ -118,11 +118,11 @@ def cmd_children(args):
     """List children."""
     api = get_api()
     children = api.get_children()
-    
+
     if args.json:
         print(json.dumps(children, indent=2, default=str))
         return
-    
+
     for child in children:
         print(f"• {child.get('name', 'Unknown')} (uid: {child['uid']})")
         if "birthDate" in child:
@@ -133,9 +133,9 @@ def cmd_sleep(args):
     """Sleep tracking commands."""
     api = get_api()
     child_uid = get_child_uid(api, args.child)
-    
+
     action = args.action
-    
+
     if action == "start":
         api.start_sleep(child_uid)
         print("💤 Sleep started")
@@ -157,9 +157,9 @@ def cmd_feed(args):
     """Feeding tracking commands."""
     api = get_api()
     child_uid = get_child_uid(api, args.child)
-    
+
     action = args.action
-    
+
     if action == "start":
         side = getattr(args, "side", "left") or "left"
         api.start_feeding(child_uid, side=side)
@@ -182,15 +182,15 @@ def cmd_diaper(args):
     """Log diaper change."""
     api = get_api()
     child_uid = get_child_uid(api, args.child)
-    
+
     kwargs = {"mode": args.mode}
     if args.color:
         kwargs["color"] = args.color
     if args.consistency:
         kwargs["consistency"] = args.consistency
-    
+
     api.log_diaper(child_uid, **kwargs)
-    
+
     emoji = "💩" if args.mode in ("poo", "both") else "💧" if args.mode == "pee" else "🧷"
     print(f"{emoji} Diaper logged: {args.mode}")
 
@@ -199,7 +199,7 @@ def cmd_growth(args):
     """Log growth measurements."""
     api = get_api()
     child_uid = get_child_uid(api, args.child)
-    
+
     kwargs = {"units": args.units or "metric"}
     if args.weight:
         kwargs["weight"] = float(args.weight)
@@ -207,11 +207,11 @@ def cmd_growth(args):
         kwargs["height"] = float(args.height)
     if args.head:
         kwargs["head"] = float(args.head)
-    
+
     if len(kwargs) == 1:
         print("Error: Provide at least one measurement")
         sys.exit(1)
-    
+
     api.log_growth(child_uid, **kwargs)
     print("📏 Growth logged")
 
@@ -229,41 +229,41 @@ def main():
     parser = argparse.ArgumentParser(prog="huckleberry", description="Huckleberry baby tracker CLI")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
     parser.add_argument("--child", "-c", help="Child name")
-    
+
     subparsers = parser.add_subparsers(dest="command")
-    
+
     subparsers.add_parser("login", help="Configure credentials")
     subparsers.add_parser("children", help="List children")
-    
+
     sleep_parser = subparsers.add_parser("sleep", help="Sleep tracking")
     sleep_parser.add_argument("action", choices=["start", "stop", "pause", "resume", "cancel"])
-    
+
     feed_parser = subparsers.add_parser("feed", help="Feeding tracking")
     feed_parser.add_argument("action", choices=["start", "stop", "switch", "bottle"])
     feed_parser.add_argument("amount", nargs="?", type=float)
     feed_parser.add_argument("--side", "-s", choices=["left", "right"], default="left")
     feed_parser.add_argument("--type", "-t", choices=["Breast Milk", "Formula", "Mixed"], default="Formula")
     feed_parser.add_argument("--units", "-u", choices=["ml", "oz"], default="ml")
-    
+
     diaper_parser = subparsers.add_parser("diaper", help="Log diaper change")
     diaper_parser.add_argument("mode", choices=["pee", "poo", "both", "dry"])
     diaper_parser.add_argument("--color", choices=["yellow", "green", "brown", "black", "red"])
     diaper_parser.add_argument("--consistency", choices=["runny", "soft", "solid", "hard"])
-    
+
     growth_parser = subparsers.add_parser("growth", help="Log growth measurements")
     growth_parser.add_argument("--weight", "-w", type=float)
     growth_parser.add_argument("--height", type=float)
     growth_parser.add_argument("--head", type=float)
     growth_parser.add_argument("--units", choices=["metric", "imperial"], default="metric")
-    
+
     subparsers.add_parser("status", help="Show current status")
-    
+
     args = parser.parse_args()
-    
+
     if not args.command:
         parser.print_help()
         sys.exit(0)
-    
+
     commands = {
         "login": cmd_login,
         "children": cmd_children,
@@ -273,7 +273,7 @@ def main():
         "growth": cmd_growth,
         "status": cmd_status,
     }
-    
+
     cmd_func = commands.get(args.command)
     if cmd_func:
         try:
