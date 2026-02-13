@@ -9,12 +9,16 @@ Usage:
     hb sleep pause                  Pause sleep
     hb sleep resume                 Resume sleep
     hb sleep cancel                 Cancel sleep
+    hb sleep history [--days=N]     View sleep history
     hb feed start [--side=left]     Start breastfeeding
     hb feed stop                    Complete feeding
     hb feed switch                  Switch sides
     hb feed bottle <amount> [--type=formula] [--units=ml]
+    hb feed history [--days=N]      View feed history
     hb diaper <mode> [--color=X] [--consistency=X]
+    hb diaper history [--days=N]    View diaper history
     hb growth [--weight=X] [--height=X] [--head=X]
+    hb growth history [--days=N]    View growth history
     hb status                       Current active timers
 """
 
@@ -22,6 +26,8 @@ import os
 import sys
 import json
 import argparse
+import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 try:
@@ -136,7 +142,9 @@ def cmd_sleep(args):
 
     action = args.action
 
-    if action == "start":
+    if action == "history":
+        show_history(api, child_uid, "sleep", args.days, args.json)
+    elif action == "start":
         api.start_sleep(child_uid)
         print("💤 Sleep started")
     elif action == "stop":
@@ -160,7 +168,9 @@ def cmd_feed(args):
 
     action = args.action
 
-    if action == "start":
+    if action == "history":
+        show_history(api, child_uid, "feed", args.days, args.json)
+    elif action == "start":
         side = getattr(args, "side", "left") or "left"
         api.start_feeding(child_uid, side=side)
         print(f"🍼 Feeding started ({side} side)")
@@ -183,6 +193,10 @@ def cmd_diaper(args):
     api = get_api()
     child_uid = get_child_uid(api, args.child)
 
+    if args.mode == "history":
+        show_history(api, child_uid, "diaper", args.days, args.json)
+        return
+
     kwargs = {"mode": args.mode}
     if args.color:
         kwargs["color"] = args.color
@@ -199,6 +213,10 @@ def cmd_growth(args):
     """Log growth measurements."""
     api = get_api()
     child_uid = get_child_uid(api, args.child)
+
+    if args.action == "history":
+        show_history(api, child_uid, "growth", args.days, args.json)
+        return
 
     kwargs = {"units": args.units or "metric"}
     if args.weight:
@@ -225,6 +243,110 @@ def cmd_status(args):
         print(f"\n👶 {child.get('name', 'Unknown')}")
 
 
+def format_ts(ts):
+    """Format a Unix timestamp to a human-readable local time string."""
+    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+
+
+def format_duration_secs(secs):
+    """Format seconds into a human-readable duration."""
+    secs = int(secs)
+    h, m = divmod(secs, 3600)
+    m = m // 60
+    if h > 0:
+        return f"{h}h {m}m"
+    return f"{m}m"
+
+
+def show_history(api, child_uid, event_type, days, json_output=False):
+    """Show history of tracked events for a specific entity."""
+    end_ts = int(time.time())
+    start_ts = end_ts - (days * 86400)
+
+    fetchers = {
+        "sleep": api.get_sleep_intervals,
+        "feed": api.get_feed_intervals,
+        "diaper": api.get_diaper_intervals,
+        "growth": api.get_health_entries,
+    }
+
+    entries = fetchers[event_type](child_uid, start_ts, end_ts)
+    entries.sort(key=lambda e: e["start"])
+    all_results = {event_type: entries}
+
+    if json_output:
+        print(json.dumps(all_results, indent=2, default=str))
+        return
+
+    total = sum(len(v) for v in all_results.values())
+    period = f"last {days} day{'s' if days != 1 else ''}"
+    print(f"📋 History ({period}, {total} entries)\n")
+
+    if "sleep" in all_results:
+        entries = all_results["sleep"]
+        print(f"💤 Sleep ({len(entries)})")
+        for e in entries:
+            dur = format_duration_secs(e.get("duration", 0))
+            print(f"  {format_ts(e['start'])}  {dur}")
+        if not entries:
+            print("  (none)")
+        print()
+
+    if "feed" in all_results:
+        entries = all_results["feed"]
+        print(f"🍼 Feeds ({len(entries)})")
+        for e in entries:
+            left_sec = float(e.get("leftDuration", 0) or 0)
+            right_sec = float(e.get("rightDuration", 0) or 0)
+            # Feed intervals are stored as seconds. Older API assumptions
+            # about "regular docs in minutes" produce massively inflated output.
+            left_m = int(left_sec / 60)
+            right_m = int(right_sec / 60)
+            total_m = left_m + right_m
+            parts = []
+            if left_m:
+                parts.append(f"L:{left_m}m")
+            if right_m:
+                parts.append(f"R:{right_m}m")
+            detail = " ".join(parts) if parts else f"{total_m}m"
+            print(f"  {format_ts(e['start'])}  {detail}")
+        if not entries:
+            print("  (none)")
+        print()
+
+    if "diaper" in all_results:
+        entries = all_results["diaper"]
+        print(f"🧷 Diapers ({len(entries)})")
+        for e in entries:
+            mode = e.get("mode", "?")
+            extras = []
+            if e.get("pooColor"):
+                extras.append(e["pooColor"])
+            if e.get("pooConsistency"):
+                extras.append(e["pooConsistency"])
+            detail = f" ({', '.join(extras)})" if extras else ""
+            print(f"  {format_ts(e['start'])}  {mode}{detail}")
+        if not entries:
+            print("  (none)")
+        print()
+
+    if "growth" in all_results:
+        entries = all_results["growth"]
+        print(f"📏 Growth ({len(entries)})")
+        for e in entries:
+            parts = []
+            if e.get("weight"):
+                parts.append(f"weight: {e['weight']}")
+            if e.get("height"):
+                parts.append(f"height: {e['height']}")
+            if e.get("head"):
+                parts.append(f"head: {e['head']}")
+            print(f"  {format_ts(e['start'])}  {', '.join(parts)}")
+        if not entries:
+            print("  (none)")
+        print()
+
+
 def main():
     parser = argparse.ArgumentParser(prog="huckleberry", description="Huckleberry baby tracker CLI")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
@@ -236,25 +358,30 @@ def main():
     subparsers.add_parser("children", help="List children")
 
     sleep_parser = subparsers.add_parser("sleep", help="Sleep tracking")
-    sleep_parser.add_argument("action", choices=["start", "stop", "pause", "resume", "cancel"])
+    sleep_parser.add_argument("action", choices=["start", "stop", "pause", "resume", "cancel", "history"])
+    sleep_parser.add_argument("--days", "-d", type=int, default=1)
 
     feed_parser = subparsers.add_parser("feed", help="Feeding tracking")
-    feed_parser.add_argument("action", choices=["start", "stop", "switch", "bottle"])
+    feed_parser.add_argument("action", choices=["start", "stop", "switch", "bottle", "history"])
     feed_parser.add_argument("amount", nargs="?", type=float)
     feed_parser.add_argument("--side", "-s", choices=["left", "right"], default="left")
     feed_parser.add_argument("--type", "-t", choices=["Breast Milk", "Formula", "Mixed"], default="Formula")
     feed_parser.add_argument("--units", "-u", choices=["ml", "oz"], default="ml")
+    feed_parser.add_argument("--days", "-d", type=int, default=1)
 
     diaper_parser = subparsers.add_parser("diaper", help="Log diaper change")
-    diaper_parser.add_argument("mode", choices=["pee", "poo", "both", "dry"])
+    diaper_parser.add_argument("mode", choices=["pee", "poo", "both", "dry", "history"])
     diaper_parser.add_argument("--color", choices=["yellow", "green", "brown", "black", "red"])
     diaper_parser.add_argument("--consistency", choices=["runny", "soft", "solid", "hard"])
+    diaper_parser.add_argument("--days", "-d", type=int, default=1)
 
     growth_parser = subparsers.add_parser("growth", help="Log growth measurements")
+    growth_parser.add_argument("action", nargs="?", choices=["history"])
     growth_parser.add_argument("--weight", "-w", type=float)
     growth_parser.add_argument("--height", type=float)
     growth_parser.add_argument("--head", type=float)
     growth_parser.add_argument("--units", choices=["metric", "imperial"], default="metric")
+    growth_parser.add_argument("--days", "-d", type=int, default=1)
 
     subparsers.add_parser("status", help="Show current status")
 
