@@ -143,7 +143,7 @@ def cmd_sleep(args):
     action = args.action
 
     if action == "history":
-        show_history(api, child_uid, "sleep", args.days, args.json)
+        show_sleep_history(api, child_uid, args.days, args.json)
     elif action == "start":
         api.start_sleep(child_uid)
         print("💤 Sleep started")
@@ -161,6 +161,28 @@ def cmd_sleep(args):
         print("💤 Sleep cancelled")
 
 
+def show_sleep_history(api, child_uid, days, json_output=False):
+    """Show sleep history."""
+    end_ts = int(time.time())
+    start_ts = end_ts - (days * 86400)
+    entries = api.get_sleep_intervals(child_uid, start_ts, end_ts)
+    entries.sort(key=lambda e: e["start"])
+
+    if json_output:
+        print(json.dumps({"sleep": entries}, indent=2, default=str))
+        return
+
+    period = f"last {days} day{'s' if days != 1 else ''}"
+    print(f"📋 History ({period}, {len(entries)} entries)\n")
+    print(f"💤 Sleep ({len(entries)})")
+    for e in entries:
+        dur = format_duration_secs(e.get("duration", 0))
+        print(f"  {format_ts(e['start'])}  {dur}")
+    if not entries:
+        print("  (none)")
+    print()
+
+
 def cmd_feed(args):
     """Feeding tracking commands."""
     api = get_api()
@@ -169,7 +191,7 @@ def cmd_feed(args):
     action = args.action
 
     if action == "history":
-        show_history(api, child_uid, "feed", args.days, args.json)
+        show_feed_history(api, child_uid, args.days, args.json)
     elif action == "start":
         side = getattr(args, "side", "left") or "left"
         api.start_feeding(child_uid, side=side)
@@ -188,13 +210,47 @@ def cmd_feed(args):
         print(f"🍼 Bottle logged: {amount}{units} {bottle_type}")
 
 
+def show_feed_history(api, child_uid, days, json_output=False):
+    """Show feed history."""
+    end_ts = int(time.time())
+    start_ts = end_ts - (days * 86400)
+    entries = api.get_feed_intervals(child_uid, start_ts, end_ts)
+    entries.sort(key=lambda e: e["start"])
+
+    if json_output:
+        print(json.dumps({"feed": entries}, indent=2, default=str))
+        return
+
+    period = f"last {days} day{'s' if days != 1 else ''}"
+    print(f"📋 History ({period}, {len(entries)} entries)\n")
+    print(f"🍼 Feeds ({len(entries)})")
+    for e in entries:
+        left_sec = float(e.get("leftDuration", 0) or 0)
+        right_sec = float(e.get("rightDuration", 0) or 0)
+        # Feed intervals are stored as seconds. Older API assumptions
+        # about "regular docs in minutes" produce massively inflated output.
+        left_m = int(left_sec / 60)
+        right_m = int(right_sec / 60)
+        total_m = left_m + right_m
+        parts = []
+        if left_m:
+            parts.append(f"L:{left_m}m")
+        if right_m:
+            parts.append(f"R:{right_m}m")
+        detail = " ".join(parts) if parts else f"{total_m}m"
+        print(f"  {format_ts(e['start'])}  {detail}")
+    if not entries:
+        print("  (none)")
+    print()
+
+
 def cmd_diaper(args):
     """Log diaper change."""
     api = get_api()
     child_uid = get_child_uid(api, args.child)
 
     if args.mode == "history":
-        show_history(api, child_uid, "diaper", args.days, args.json)
+        show_diaper_history(api, child_uid, args.days, args.json)
         return
 
     kwargs = {"mode": args.mode}
@@ -209,13 +265,41 @@ def cmd_diaper(args):
     print(f"{emoji} Diaper logged: {args.mode}")
 
 
+def show_diaper_history(api, child_uid, days, json_output=False):
+    """Show diaper history."""
+    end_ts = int(time.time())
+    start_ts = end_ts - (days * 86400)
+    entries = api.get_diaper_intervals(child_uid, start_ts, end_ts)
+    entries.sort(key=lambda e: e["start"])
+
+    if json_output:
+        print(json.dumps({"diaper": entries}, indent=2, default=str))
+        return
+
+    period = f"last {days} day{'s' if days != 1 else ''}"
+    print(f"📋 History ({period}, {len(entries)} entries)\n")
+    print(f"🧷 Diapers ({len(entries)})")
+    for e in entries:
+        mode = e.get("mode", "?")
+        extras = []
+        if e.get("pooColor"):
+            extras.append(e["pooColor"])
+        if e.get("pooConsistency"):
+            extras.append(e["pooConsistency"])
+        detail = f" ({', '.join(extras)})" if extras else ""
+        print(f"  {format_ts(e['start'])}  {mode}{detail}")
+    if not entries:
+        print("  (none)")
+    print()
+
+
 def cmd_growth(args):
     """Log growth measurements."""
     api = get_api()
     child_uid = get_child_uid(api, args.child)
 
     if args.action == "history":
-        show_history(api, child_uid, "growth", args.days, args.json)
+        show_growth_history(api, child_uid, args.days, args.json)
         return
 
     kwargs = {"units": args.units or "metric"}
@@ -232,6 +316,35 @@ def cmd_growth(args):
 
     api.log_growth(child_uid, **kwargs)
     print("📏 Growth logged")
+
+
+def show_growth_history(api, child_uid, days, json_output=False):
+    """Show growth history."""
+    end_ts = int(time.time())
+    start_ts = end_ts - (days * 86400)
+
+    entries = api.get_health_entries(child_uid, start_ts, end_ts)
+    entries.sort(key=lambda e: e["start"])
+
+    if json_output:
+        print(json.dumps({"growth": entries}, indent=2, default=str))
+        return
+
+    period = f"last {days} day{'s' if days != 1 else ''}"
+    print(f"📋 History ({period}, {len(entries)} entries)\n")
+    print(f"📏 Growth ({len(entries)})")
+    for e in entries:
+        parts = []
+        if e.get("weight"):
+            parts.append(f"weight: {e['weight']}")
+        if e.get("height"):
+            parts.append(f"height: {e['height']}")
+        if e.get("head"):
+            parts.append(f"head: {e['head']}")
+        print(f"  {format_ts(e['start'])}  {', '.join(parts)}")
+    if not entries:
+        print("  (none)")
+    print()
 
 
 def cmd_status(args):
@@ -256,96 +369,6 @@ def format_duration_secs(secs):
     if h > 0:
         return f"{h}h {m}m"
     return f"{m}m"
-
-
-def show_history(api, child_uid, event_type, days, json_output=False):
-    """Show history of tracked events for a specific entity."""
-    end_ts = int(time.time())
-    start_ts = end_ts - (days * 86400)
-
-    fetchers = {
-        "sleep": api.get_sleep_intervals,
-        "feed": api.get_feed_intervals,
-        "diaper": api.get_diaper_intervals,
-        "growth": api.get_health_entries,
-    }
-
-    entries = fetchers[event_type](child_uid, start_ts, end_ts)
-    entries.sort(key=lambda e: e["start"])
-    all_results = {event_type: entries}
-
-    if json_output:
-        print(json.dumps(all_results, indent=2, default=str))
-        return
-
-    total = sum(len(v) for v in all_results.values())
-    period = f"last {days} day{'s' if days != 1 else ''}"
-    print(f"📋 History ({period}, {total} entries)\n")
-
-    if "sleep" in all_results:
-        entries = all_results["sleep"]
-        print(f"💤 Sleep ({len(entries)})")
-        for e in entries:
-            dur = format_duration_secs(e.get("duration", 0))
-            print(f"  {format_ts(e['start'])}  {dur}")
-        if not entries:
-            print("  (none)")
-        print()
-
-    if "feed" in all_results:
-        entries = all_results["feed"]
-        print(f"🍼 Feeds ({len(entries)})")
-        for e in entries:
-            left_sec = float(e.get("leftDuration", 0) or 0)
-            right_sec = float(e.get("rightDuration", 0) or 0)
-            # Feed intervals are stored as seconds. Older API assumptions
-            # about "regular docs in minutes" produce massively inflated output.
-            left_m = int(left_sec / 60)
-            right_m = int(right_sec / 60)
-            total_m = left_m + right_m
-            parts = []
-            if left_m:
-                parts.append(f"L:{left_m}m")
-            if right_m:
-                parts.append(f"R:{right_m}m")
-            detail = " ".join(parts) if parts else f"{total_m}m"
-            print(f"  {format_ts(e['start'])}  {detail}")
-        if not entries:
-            print("  (none)")
-        print()
-
-    if "diaper" in all_results:
-        entries = all_results["diaper"]
-        print(f"🧷 Diapers ({len(entries)})")
-        for e in entries:
-            mode = e.get("mode", "?")
-            extras = []
-            if e.get("pooColor"):
-                extras.append(e["pooColor"])
-            if e.get("pooConsistency"):
-                extras.append(e["pooConsistency"])
-            detail = f" ({', '.join(extras)})" if extras else ""
-            print(f"  {format_ts(e['start'])}  {mode}{detail}")
-        if not entries:
-            print("  (none)")
-        print()
-
-    if "growth" in all_results:
-        entries = all_results["growth"]
-        print(f"📏 Growth ({len(entries)})")
-        for e in entries:
-            parts = []
-            if e.get("weight"):
-                parts.append(f"weight: {e['weight']}")
-            if e.get("height"):
-                parts.append(f"height: {e['height']}")
-            if e.get("head"):
-                parts.append(f"head: {e['head']}")
-            print(f"  {format_ts(e['start'])}  {', '.join(parts)}")
-        if not entries:
-            print("  (none)")
-        print()
-
 
 def main():
     parser = argparse.ArgumentParser(prog="huckleberry", description="Huckleberry baby tracker CLI")
