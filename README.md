@@ -43,17 +43,21 @@ huckleberry sleep start
 huckleberry sleep pause
 huckleberry sleep resume
 huckleberry sleep stop
+huckleberry sleep history --days=2
 
 huckleberry feed start --side=left
 huckleberry feed switch
 huckleberry feed stop
+huckleberry feed history --days=2
 
 huckleberry feed bottle 120 --type="Formula" --units=ml
 
 huckleberry diaper poo --color=yellow --consistency=soft
 huckleberry diaper both
+huckleberry diaper history --days=2
 
 huckleberry growth --weight=5.2 --height=52 --head=35
+huckleberry growth history --days=14
 
 huckleberry --child "Eloise" sleep start
 ```
