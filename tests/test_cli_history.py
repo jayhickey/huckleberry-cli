@@ -22,6 +22,15 @@ class FakeAPI:
     def get_health_entries(self, child_uid, start_ts, end_ts):
         return [{"start": start_ts, "weight": 5.2}]
 
+    def get_solids_intervals(self, child_uid, start_ts, end_ts):
+        return [{"start": start_ts, "mode": "solids", "foods": {
+            "abc-123": {"id": "abc-123", "source": "custom", "created_name": "banana"},
+            "def-456": {"id": "def-456", "source": "custom", "created_name": "rice"},
+        }}]
+
+    def log_solids(self, child_uid, foods, notes="", reaction=""):
+        pass
+
 
 def load_cli_module():
     """Load the CLI module with a stubbed huckleberry_api dependency."""
@@ -60,6 +69,7 @@ def test_entity_history_commands():
         ["feed", "history", "--days", "2"],
         ["diaper", "history", "--days", "2"],
         ["growth", "history", "--days", "2"],
+        ["solids", "history", "--days", "2"],
     ]
 
     for argv in commands:
@@ -76,3 +86,25 @@ def test_feed_history_durations_are_converted_from_seconds():
     code, out, err = run_main(cli, ["feed", "history", "--days", "2"])
     assert code == 0, f"Unexpected failure: {err}"
     assert "L:15m R:53m" in out
+
+
+def test_solids_history_shows_foods():
+    cli = load_cli_module()
+    cli.get_api = lambda: FakeAPI()
+    cli.get_child_uid = lambda api, child=None: "child_1"
+
+    code, out, err = run_main(cli, ["solids", "history", "--days", "2"])
+    assert code == 0, f"Unexpected failure: {err}"
+    assert "banana" in out
+    assert "rice" in out
+    assert "Solids" in out
+
+
+def test_solids_log():
+    cli = load_cli_module()
+    cli.get_api = lambda: FakeAPI()
+    cli.get_child_uid = lambda api, child=None: "child_1"
+
+    code, out, err = run_main(cli, ["solids", "log", "apple,banana", "--notes", "morning snack", "--reaction", "LOVED"])
+    assert code == 0, f"Unexpected failure: {err}"
+    assert "Solids logged" in out

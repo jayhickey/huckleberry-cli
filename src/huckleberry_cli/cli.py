@@ -19,6 +19,8 @@ Usage:
     hb diaper history [--days=N]    View diaper history
     hb growth [--weight=X] [--height=X] [--head=X]
     hb growth history [--days=N]    View growth history
+    hb solids log <foods> [--notes=X] [--reaction=X]
+    hb solids history [--days=N]     View solids history
     hb status                       Current active timers
 """
 
@@ -347,6 +349,66 @@ def show_growth_history(api, child_uid, days, json_output=False):
     print()
 
 
+def show_solids_history(api, child_uid, days, json_output=False):
+    """Show solids history."""
+    end_ts = int(time.time())
+    start_ts = end_ts - (days * 86400)
+    entries = api.get_solids_intervals(child_uid, start_ts, end_ts)
+    entries.sort(key=lambda e: e["start"])
+
+    if json_output:
+        print(json.dumps({"solids": entries}, indent=2, default=str))
+        return
+
+    period = f"last {days} day{'s' if days != 1 else ''}"
+    print(f"📋 History ({period}, {len(entries)} entries)\n")
+    print(f"🥣 Solids ({len(entries)})")
+    for e in entries:
+        foods = solids_items_from_map(e.get("foods"))
+        items_txt = ", ".join(foods) if foods else "(no items)"
+        extras = []
+        reactions = e.get("reactions", {})
+        for r, v in reactions.items():
+            if v:
+                extras.append(r)
+        notes = e.get("notes", "")
+        detail = items_txt
+        if extras:
+            detail += f" ({', '.join(extras)})"
+        if notes:
+            detail += f' "{notes}"'
+        print(f"  {format_ts(e['start'])}  {detail}")
+    if not entries:
+        print("  (none)")
+    print()
+
+
+def cmd_solids(args):
+    """Solid food tracking commands."""
+    api = get_api()
+    child_uid = get_child_uid(api, args.child)
+
+    action = args.action
+
+    if action == "history":
+        show_solids_history(api, child_uid, args.days, args.json)
+    elif action == "log":
+        if not args.items:
+            print("Error: Provide comma-separated food names")
+            sys.exit(1)
+        food_list = [f.strip() for f in args.items.split(",") if f.strip()]
+        if not food_list:
+            print("Error: Provide at least one food item")
+            sys.exit(1)
+        kwargs = {"foods": food_list}
+        if args.notes:
+            kwargs["notes"] = args.notes
+        if args.reaction:
+            kwargs["reaction"] = args.reaction
+        api.log_solids(child_uid, **kwargs)
+        print(f"🥣 Solids logged: {', '.join(food_list)}")
+
+
 def cmd_status(args):
     """Show current status."""
     api = get_api()
@@ -369,6 +431,23 @@ def format_duration_secs(secs):
     if h > 0:
         return f"{h}h {m}m"
     return f"{m}m"
+
+
+def solids_items_from_map(foods):
+    """Extract food names from Firestore foods dict."""
+    if not isinstance(foods, dict):
+        return []
+    items = []
+    for _, info in foods.items():
+        if not isinstance(info, dict):
+            continue
+        name = str(info.get("created_name") or info.get("name") or "").strip()
+        amt = str(info.get("amount") or "").strip()
+        if not name:
+            continue
+        items.append(f"{amt} {name}".strip() if amt else name)
+    return items
+
 
 def main():
     parser = argparse.ArgumentParser(prog="huckleberry", description="Huckleberry baby tracker CLI")
@@ -406,6 +485,13 @@ def main():
     growth_parser.add_argument("--units", choices=["metric", "imperial"], default="metric")
     growth_parser.add_argument("--days", "-d", type=int, default=1)
 
+    solids_parser = subparsers.add_parser("solids", help="Solid food tracking")
+    solids_parser.add_argument("action", choices=["log", "history"])
+    solids_parser.add_argument("items", nargs="?", help="Comma-separated food names")
+    solids_parser.add_argument("--notes", "-n", help="Notes about the meal")
+    solids_parser.add_argument("--reaction", "-r", choices=["LOVED", "LIKED", "MEH", "DISLIKED"])
+    solids_parser.add_argument("--days", "-d", type=int, default=1)
+
     subparsers.add_parser("status", help="Show current status")
 
     args = parser.parse_args()
@@ -421,6 +507,7 @@ def main():
         "feed": cmd_feed,
         "diaper": cmd_diaper,
         "growth": cmd_growth,
+        "solids": cmd_solids,
         "status": cmd_status,
     }
 
